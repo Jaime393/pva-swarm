@@ -1,57 +1,55 @@
 #!/usr/bin/env python3
-# pva-swarm V202 — Validacion adversarial distribuida — rho(x)>0
-# FastAPI + SQLite + HTMX ligero — sin React pesado
-from fastapi import FastAPI, Form
-from fastapi.responses import HTMLResponse
-import sqlite3, pathlib, json, datetime
+# pva-swarm V202 flexible — sin pydantic — stdlib fallback para py3.14
+import os, sys, json, pathlib
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs, urlparse
 
-DB = "swarm.db"
-app = FastAPI(title="pva-swarm")
+DB = pathlib.Path("papers.json")
+if not DB.exists():
+    DB.write_text("[]")
 
-def init_db():
-    con = sqlite3.connect(DB)
-    con.execute("CREATE TABLE IF NOT EXISTS papers (id INTEGER PRIMARY KEY, doi TEXT, hash TEXT, title TEXT, cred REAL DEFAULT 0.5, created TEXT)")
-    con.execute("CREATE TABLE IF NOT EXISTS validations (id INTEGER PRIMARY KEY, paper_id INT, validator TEXT, result TEXT, note TEXT, created TEXT)")
-    con.commit()
-
-init_db()
-
-@app.get("/", response_class=HTMLResponse)
-def home():
-    con = sqlite3.connect(DB)
-    papers = con.execute("SELECT * FROM papers ORDER BY id DESC").fetchall()
-    html = "<h1>pva-swarm V202 — rho(x)>0 — Validacion adversarial</h1><a href='/docs'>API</a><hr>"
-    html += "<form method='post' action='/api/papers'><input name='doi' placeholder='DOI'><input name='title' placeholder='Titulo'><button>Publicar paper</button></form><hr>"
-    for p in papers:
-        html += f"<div><b>{p[3]}</b> DOI:{p[1]} cred:{p[4]} <form method='post' action='/api/validate'><input type='hidden' name='paper_id' value='{p[0]}'><input name='validator' placeholder='validador'><select name='result'><option>fail_refutation</option><option>counterexample</option></select><input name='note' placeholder='nota'><button>Validar</button></form></div><hr>"
-    return html
-
-@app.post("/api/papers")
-def publish_paper(doi: str = Form(...), title: str = Form("")):
-    con = sqlite3.connect(DB)
-    con.execute("INSERT INTO papers (doi, hash, title, cred, created) VALUES (?,?,?,?,?)", (doi, "sha256", title, 0.5, datetime.datetime.now().isoformat()))
-    con.commit()
-    # bayes: fail refutation -> cred up, counterexample -> cred down
-    return {"ok": True, "doi": doi}
-
-@app.post("/api/validate")
-def validate(paper_id: int = Form(...), validator: str = Form(...), result: str = Form(...), note: str = Form("")):
-    con = sqlite3.connect(DB)
-    con.execute("INSERT INTO validations (paper_id, validator, result, note, created) VALUES (?,?,?,?,?)", (paper_id, validator, result, note, datetime.datetime.now().isoformat()))
-    # update credibility
-    cur = con.execute("SELECT cred FROM papers WHERE id=?", (paper_id,)).fetchone()
-    if cur:
-        cred = cur[0]
-        if result == "fail_refutation":
-            cred = min(0.9999, cred + 0.05)  # aumenta
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self,*a): pass
+    def do_GET(self):
+        p = urlparse(self.path)
+        if p.path in ("/","/api"):
+            self.send_html("<h1>pva-swarm V202 flexible rho>0</h1><p>GET /api/papers</p><p>POST /api/papers doi=...&title=...</p>")
+        elif p.path == "/api/papers":
+            try: data = json.loads(DB.read_text())
+            except: data=[]
+            self.send_json({"papers": data, "rho": ">0", "mode": "stdlib-flex"})
         else:
-            cred = max(0.0001, cred - 0.2)  # disminuye
-        con.execute("UPDATE papers SET cred=? WHERE id=?", (cred, paper_id))
-    con.commit()
-    return {"ok": True, "new_cred": cred if cur else None}
+            self.send_json({"error":"not found"},404)
+    def do_POST(self):
+        p = urlparse(self.path)
+        length = int(self.headers.get('content-length',0))
+        body = self.rfile.read(length).decode() if length else ""
+        data = parse_qs(body)
+        if self.headers.get('content-type','').startswith('application/json'):
+            try:
+                j = json.loads(body) if body else {}
+                data = {k:[str(v)] for k,v in j.items()}
+            except: pass
+        def get(k,d=""): return (data.get(k,[d])[0] if data.get(k) else d)
+        if p.path == "/api/papers":
+            doi = get("doi"); title = get("title")
+            try: papers = json.loads(DB.read_text())
+            except: papers=[]
+            papers.append({"doi": doi, "title": title})
+            DB.write_text(json.dumps(papers, indent=2))
+            self.send_json({"registered": {"doi": doi, "title": title}, "total": len(papers), "rho": ">0"})
+        else:
+            self.send_json({"error":"not found"},404)
+    def send_json(self,obj,code=200):
+        self.send_response(code); self.send_header("Content-Type","application/json"); self.end_headers()
+        self.wfile.write(json.dumps(obj, indent=2).encode())
+    def send_html(self,html,code=200):
+        self.send_response(code); self.send_header("Content-Type","text/html"); self.end_headers()
+        self.wfile.write(html.encode())
 
-@app.get("/api/papers")
-def list_papers():
-    con = sqlite3.connect(DB)
-    papers = con.execute("SELECT * FROM papers").fetchall()
-    return {"papers": papers}
+def run(port=8000):
+    print(f"[flex] pva-swarm stdlib :{port} rho>0")
+    HTTPServer(("0.0.0.0",port), Handler).serve_forever()
+
+if __name__ == "__main__":
+    run(int(os.getenv("PORT","8000")))
