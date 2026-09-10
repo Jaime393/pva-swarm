@@ -1,0 +1,9 @@
+name: PVA swarm
+on: [push]
+jobs:
+  pva:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install fastapi uvicorn python-multipart
+      - run: python -m py_compile app.py
