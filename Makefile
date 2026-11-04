@@ -1,11 +1,11 @@
 repro:
-	python -c "import app; print('swarm ok')"
+	python3 app.py --snapshot
 
 reproduce:
-	python -c "import app; print('swarm ok')"
+	python3 app.py --snapshot
 
 dev:
-	uvicorn app:app --reload
+	python3 app.py --serve
 
 test:
-	python -m py_compile app.py
+	python3 -m unittest discover -s tests -v
