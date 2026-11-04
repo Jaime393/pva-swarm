@@ -1,2 +1,1 @@
-# flexible — sin pydantic — py3.14 OK
-requests
+# Standard library only.
